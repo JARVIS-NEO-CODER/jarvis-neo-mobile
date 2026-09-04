@@ -1,0 +1,44 @@
+name: Build JARVIS NEO Mobile
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+      - run: flutter create . --platforms=android --org com.jarvisneo
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-neo-mobile-android
+          path: build/app/outputs/flutter-apk/app-release.apk
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+      - run: flutter create . --platforms=ios --org com.jarvisneo
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter build ios --release --no-codesign
+      - name: Package unsigned iOS app
+        run: mkdir -p artifacts && cd build/ios/iphoneos && zip -r ../../../artifacts/jarvis-neo-mobile-ios-unsigned.zip Runner.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-neo-mobile-ios
+          path: artifacts/jarvis-neo-mobile-ios-unsigned.zip
