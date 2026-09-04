@@ -13,9 +13,11 @@ class JarvisRemoteBridge {
 
   IOWebSocketChannel? _channel;
   StreamSubscription? _subscription;
+  Timer? _reconnectTimer;
   final _uuid = const Uuid();
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   bool _manualDisconnect = false;
+  bool _connecting = false;
   String? _relayUrl;
   String? _nodeId;
   String? _token;
@@ -52,49 +54,73 @@ class JarvisRemoteBridge {
     if (_relayUrl == null || _nodeId == null || _token == null || _deviceId == null) {
       throw StateError('Configure le relais, le Node ID et appaire d’abord le PC sur le réseau local.');
     }
-    await disconnect();
+    _reconnectTimer?.cancel();
+    await _closeSocket();
     _manualDisconnect = false;
-    final uri = Uri.parse('${_relayUrl!}/ws');
-    final channel = IOWebSocketChannel.connect(uri);
-    _channel = channel;
-    await channel.ready;
-    final attached = Completer<void>();
-    _subscription = channel.stream.listen((raw) {
-      try {
-        final data = jsonDecode(raw as String) as Map<String, dynamic>;
-        if (!attached.isCompleted && data['type'] == 'remote_attached') {
-          attached.complete();
-          channel.sink.add(jsonEncode({
-            'type': 'authenticate',
-            'protocol': protocol,
-            'token': _token,
-            'device_id': _deviceId,
-          }));
-          return;
-        }
-        _events.add(data);
-      } catch (e) {
-        _events.add({'type': 'error', 'code': 'INVALID_REMOTE_FRAME', 'message': '$e'});
-      }
-    }, onError: (Object error, StackTrace stack) {
-      if (!attached.isCompleted) attached.completeError(error, stack);
-      _events.add({'type': 'error', 'code': 'REMOTE_SOCKET_ERROR', 'message': '$error'});
-    }, onDone: () {
-      _channel = null;
-      if (!_manualDisconnect) _events.add({'type': 'disconnected', 'reconnectable': true});
-    });
+    await _connectOnce();
+  }
 
-    channel.sink.add(jsonEncode({
-      'type': 'remote',
-      'protocol': protocol,
-      'node_id': _nodeId,
-    }));
+  Future<void> _connectOnce() async {
+    if (_connecting || _manualDisconnect || _channel != null) return;
+    _connecting = true;
     try {
+      final uri = Uri.parse('${_relayUrl!}/ws');
+      final channel = IOWebSocketChannel.connect(uri);
+      _channel = channel;
+      await channel.ready;
+      final attached = Completer<void>();
+      _subscription = channel.stream.listen((raw) {
+        try {
+          final data = jsonDecode(raw as String) as Map<String, dynamic>;
+          if (!attached.isCompleted && data['type'] == 'remote_attached') {
+            attached.complete();
+            channel.sink.add(jsonEncode({
+              'type': 'authenticate',
+              'protocol': protocol,
+              'token': _token,
+              'device_id': _deviceId,
+            }));
+            return;
+          }
+          _events.add(data);
+        } catch (e) {
+          _events.add({'type': 'error', 'code': 'INVALID_REMOTE_FRAME', 'message': '$e'});
+        }
+      }, onError: (Object error, StackTrace stack) {
+        if (!attached.isCompleted) attached.completeError(error, stack);
+        _events.add({'type': 'error', 'code': 'REMOTE_SOCKET_ERROR', 'message': '$error'});
+      }, onDone: () {
+        _channel = null;
+        _subscription = null;
+        if (!attached.isCompleted) attached.completeError(StateError('Connexion Remote fermée.'));
+        if (!_manualDisconnect) {
+          _events.add({'type': 'disconnected', 'reconnectable': true});
+          _scheduleReconnect();
+        }
+      });
+
+      channel.sink.add(jsonEncode({
+        'type': 'remote',
+        'protocol': protocol,
+        'node_id': _nodeId,
+      }));
       await attached.future.timeout(const Duration(seconds: 12));
     } catch (_) {
-      await disconnect();
+      if (!_manualDisconnect) _scheduleReconnect();
       rethrow;
+    } finally {
+      _connecting = false;
     }
+  }
+
+  void _scheduleReconnect() {
+    if (_manualDisconnect || _reconnectTimer?.isActive == true) return;
+    _reconnectTimer = Timer(const Duration(seconds: 5), () async {
+      if (_manualDisconnect || _channel != null) return;
+      try {
+        await _connectOnce();
+      } catch (_) {}
+    });
   }
 
   Future<void> ping() => _send({'type': 'ping'});
@@ -112,13 +138,18 @@ class JarvisRemoteBridge {
     channel.sink.add(jsonEncode(body));
   }
 
-  Future<void> disconnect() async {
-    _manualDisconnect = true;
+  Future<void> _closeSocket() async {
     await _subscription?.cancel();
     _subscription = null;
     final channel = _channel;
     _channel = null;
     await channel?.sink.close();
+  }
+
+  Future<void> disconnect() async {
+    _manualDisconnect = true;
+    _reconnectTimer?.cancel();
+    await _closeSocket();
   }
 
   Future<void> dispose() async {
