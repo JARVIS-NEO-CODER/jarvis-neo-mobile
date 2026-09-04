@@ -15,7 +15,7 @@ jobs:
           flutter-version: '3.24.5'
           channel: stable
           cache: true
-      - run: flutter create . --platforms=android --org com.jarvisneo
+      - run: flutter create . --project-name jarvis_neo_mobile --platforms=android --org com.jarvisneo
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter build apk --release
@@ -32,7 +32,7 @@ jobs:
           flutter-version: '3.24.5'
           channel: stable
           cache: true
-      - run: flutter create . --platforms=ios --org com.jarvisneo
+      - run: flutter create . --project-name jarvis_neo_mobile --platforms=ios --org com.jarvisneo
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter build ios --release --no-codesign
