@@ -16,6 +16,18 @@ jobs:
           channel: stable
           cache: true
       - run: flutter create . --project-name jarvis_neo_mobile --platforms=android --org com.jarvisneo
+      - name: Configure Android runtime permissions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/src/main/AndroidManifest.xml')
+          s = p.read_text()
+          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          permissions = '''\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />\n    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n'''
+          if marker in s and 'RECORD_AUDIO' not in s:
+              s = s.replace(marker, marker + permissions)
+          p.write_text(s)
+          PY
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter build apk --release
@@ -33,6 +45,17 @@ jobs:
           channel: stable
           cache: true
       - run: flutter create . --project-name jarvis_neo_mobile --platforms=ios --org com.jarvisneo
+      - name: Configure iOS privacy descriptions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ios/Runner/Info.plist')
+          s = p.read_text()
+          entries = '''\n\t<key>NSMicrophoneUsageDescription</key>\n\t<string>JARVIS NEO utilise le microphone pour les commandes vocales.</string>\n\t<key>NSSpeechRecognitionUsageDescription</key>\n\t<string>JARVIS NEO utilise la reconnaissance vocale pour comprendre les commandes.</string>\n\t<key>NSCameraUsageDescription</key>\n\t<string>JARVIS NEO utilise la caméra lorsque cette fonction est autorisée.</string>\n\t<key>NSLocationWhenInUseUsageDescription</key>\n\t<string>JARVIS NEO utilise la localisation pour les fonctions autorisées et les routines.</string>\n\t<key>NSBluetoothAlwaysUsageDescription</key>\n\t<string>JARVIS NEO utilise Bluetooth pour les appareils autorisés.</string>\n'''
+          if 'NSMicrophoneUsageDescription' not in s:
+              s = s.replace('</dict>', entries + '</dict>')
+          p.write_text(s)
+          PY
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter build ios --release --no-codesign
