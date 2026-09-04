@@ -5,6 +5,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'pages/pc_connection_page.dart';
 
 void main() => runApp(const JarvisApp());
 
@@ -157,8 +158,12 @@ class ActivityLog { final entries = <String>[]; void add(String type, String tex
 class DevicesPage extends StatelessWidget {
   const DevicesPage({super.key});
   @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(16), children: [
-    const SectionTitle('Écosystème JARVIS'), DeviceCard('JARVIS NEO PC', 'Connexion à établir', Icons.computer, false), DeviceCard('Téléphone', 'Cet appareil • actif', Icons.smartphone, true), DeviceCard('Google Home', 'Prêt à connecter', Icons.home_outlined, false),
-    const SizedBox(height: 20), Card(child: ListTile(leading: const Icon(Icons.add_link), title: const Text('Ajouter un appareil'), subtitle: const Text('Détection automatique ou code à 6 chiffres'), trailing: const Icon(Icons.chevron_right), onTap: () => showDialog(context: context, builder: (_) => const AlertDialog(title: Text('Appairage'), content: Text('Le protocole JARVIS NEO utilisera la découverte locale ou un code à 6 chiffres.'))))),
+    const SectionTitle('Écosystème JARVIS'),
+    Card(child: ListTile(leading: const Icon(Icons.computer, color: Colors.cyan), title: const Text('JARVIS NEO PC'), subtitle: const Text('Détection LAN • appairage sécurisé • synchronisation'), trailing: const Icon(Icons.chevron_right), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PcConnectionPage())))),
+    const DeviceCard('Téléphone', 'Cet appareil • actif', Icons.smartphone, true),
+    const DeviceCard('Google Home', 'Prêt à connecter', Icons.home_outlined, false),
+    const SizedBox(height: 12),
+    const Card(child: ListTile(leading: Icon(Icons.security), title: Text('Sécurité appareil'), subtitle: Text('Permissions granulaires et contrôle des appareils autorisés'))),
   ]);
 }
 class DeviceCard extends StatelessWidget { final String name, sub; final IconData icon; final bool on; const DeviceCard(this.name, this.sub, this.icon, this.on, {super.key}); @override Widget build(BuildContext context) => Card(child: ListTile(leading: CircleAvatar(child: Icon(icon)), title: Text(name), subtitle: Text(sub), trailing: Icon(on ? Icons.check_circle : Icons.radio_button_unchecked, color: on ? Colors.cyan : null))); }
