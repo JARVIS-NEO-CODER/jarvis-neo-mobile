@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:uuid/uuid.dart';
 
@@ -14,16 +15,32 @@ class DiscoveredPc {
 class JarvisPcBridge {
   static const discoveryPort = 47821;
   static const protocol = 'jarvis-neo/1';
+  static const _hostKey = 'jarvis_pc_host';
+  static const _portKey = 'jarvis_pc_port';
+  static const _tokenKey = 'jarvis_pc_token';
+  static const _deviceIdKey = 'jarvis_pc_device_id';
+
   IOWebSocketChannel? _channel;
   String? _token;
   String? _deviceId;
+  String? _host;
+  int? _port;
   final _uuid = const Uuid();
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   StreamSubscription? _socketSub;
+  bool _manualDisconnect = false;
 
   Stream<Map<String, dynamic>> get events => _events.stream;
   bool get isConnected => _channel != null && _token != null;
   String? get deviceId => _deviceId;
+
+  Future<void> loadSavedSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    _host = prefs.getString(_hostKey);
+    _port = prefs.getInt(_portKey);
+    _token = prefs.getString(_tokenKey);
+    _deviceId = prefs.getString(_deviceIdKey);
+  }
 
   Stream<DiscoveredPc> discover({Duration timeout = const Duration(seconds: 6)}) async* {
     final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
@@ -52,7 +69,12 @@ class JarvisPcBridge {
 
   Future<void> connect(DiscoveredPc pc, String pairingCode) async {
     await disconnect();
-    final uri = Uri.parse('ws://${pc.host}:${pc.port}/mobile/ws');
+    _manualDisconnect = false;
+    _host = pc.host;
+    _port = pc.port;
+    _deviceId ??= _uuid.v4();
+
+    final uri = Uri.parse('ws://${pc.host}:${pc.port}/ws');
     final channel = IOWebSocketChannel.connect(uri);
     _channel = channel;
     await channel.ready;
@@ -72,22 +94,31 @@ class JarvisPcBridge {
       _events.add({'type': 'error', 'code': 'SOCKET_ERROR', 'message': '$error'});
     }, onDone: () {
       if (!paired.isCompleted) paired.completeError(StateError('Connexion fermée pendant l’appairage'));
-      _token = null;
       _channel = null;
-      _events.add({'type': 'disconnected'});
+      if (!_manualDisconnect) {
+        _events.add({'type': 'disconnected', 'reconnectable': true});
+      }
     });
 
-    _deviceId = _uuid.v4();
     channel.sink.add(jsonEncode({
-      'type': 'pair', 'protocol': protocol, 'code': pairingCode, 'device_id': _deviceId,
+      'type': 'pair',
+      'protocol': protocol,
+      'code': pairingCode,
+      'device_id': _deviceId,
+      'name': 'JARVIS NEO Mobile',
     }));
 
     try {
       final data = await paired.future.timeout(const Duration(seconds: 10));
-      if (data['type'] != 'paired' || data['token'] == null) {
+      if (data['type'] != 'paired' || data['token'] == null || data['protocol'] != protocol) {
         throw StateError('Appairage refusé par JARVIS NEO PC');
       }
       _token = data['token'] as String;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_hostKey, _host!);
+      await prefs.setInt(_portKey, _port!);
+      await prefs.setString(_tokenKey, _token!);
+      await prefs.setString(_deviceIdKey, _deviceId!);
       _events.add(data);
     } catch (_) {
       await disconnect();
@@ -95,10 +126,43 @@ class JarvisPcBridge {
     }
   }
 
+  Future<void> reconnect() async {
+    await loadSavedSession();
+    if (_host == null || _port == null || _token == null || _deviceId == null) {
+      throw StateError('Aucune session PC enregistrée');
+    }
+    await disconnect(clearSaved: false);
+    _manualDisconnect = false;
+    final uri = Uri.parse('ws://$_host:$_port/ws');
+    final channel = IOWebSocketChannel.connect(uri);
+    _channel = channel;
+    await channel.ready;
+    final ready = Completer<void>();
+    _socketSub = channel.stream.listen((raw) {
+      try {
+        final data = jsonDecode(raw as String) as Map<String, dynamic>;
+        if (!ready.isCompleted && data['type'] == 'authenticated') ready.complete();
+        else _events.add(data);
+      } catch (_) {}
+    }, onError: (Object error, StackTrace stack) {
+      if (!ready.isCompleted) ready.completeError(error, stack);
+      _events.add({'type': 'error', 'code': 'SOCKET_ERROR', 'message': '$error'});
+    }, onDone: () {
+      _channel = null;
+      if (!_manualDisconnect) _events.add({'type': 'disconnected', 'reconnectable': true});
+    });
+    channel.sink.add(jsonEncode({'type': 'authenticate', 'protocol': protocol, 'token': _token, 'device_id': _deviceId}));
+    try {
+      await ready.future.timeout(const Duration(seconds: 10));
+    } catch (_) {
+      await disconnect(clearSaved: false);
+      rethrow;
+    }
+  }
+
   Future<void> ping() => _send({'type': 'ping'});
   Future<void> status() => _send({'type': 'status'});
   Future<void> sync() => _send({'type': 'sync'});
-
   Future<void> action(String name, [Map<String, dynamic> args = const {}]) =>
       _send({'type': 'action', 'action': name, 'args': args});
 
@@ -111,20 +175,32 @@ class JarvisPcBridge {
     channel.sink.add(jsonEncode(body));
   }
 
-  Future<void> disconnect() async {
-    _token = null;
-    _deviceId = null;
+  Future<void> disconnect({bool clearSaved = false}) async {
+    _manualDisconnect = true;
     final sub = _socketSub;
     _socketSub = null;
     await sub?.cancel();
     final channel = _channel;
     _channel = null;
     await channel?.sink.close();
+    _token = clearSaved ? null : _token;
     _events.add({'type': 'disconnected'});
+    if (clearSaved) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_hostKey);
+      await prefs.remove(_portKey);
+      await prefs.remove(_tokenKey);
+      await prefs.remove(_deviceIdKey);
+      _host = null;
+      _port = null;
+      _deviceId = null;
+    }
   }
 
+  Future<void> forgetDevice() => disconnect(clearSaved: true);
+
   Future<void> dispose() async {
-    await disconnect();
+    await disconnect(clearSaved: false);
     await _events.close();
   }
 }
