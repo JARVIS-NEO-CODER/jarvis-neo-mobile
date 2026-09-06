@@ -52,7 +52,7 @@ class _HomeState extends State<Home> {
     setState(() => listening = true);
     await speech.listen(onResult: (result) {
       if (result.finalResult && result.recognizedWords.trim().isNotEmpty) _sendVoice(result.recognizedWords.trim());
-    }, options: stt.SpeechListenOptions(localeId: 'fr_FR'));
+    }, localeId: 'fr_FR');
   }
 
   Future<void> _sendVoice(String text) async {
