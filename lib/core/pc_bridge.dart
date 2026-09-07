@@ -46,8 +46,8 @@ class JarvisPcBridge {
     final seen = <String>{};
     final candidates = <String>{};
 
-    // Discover the phone's active IPv4 LAN and probe the PC's actual HTTP
-    // gateway. This works even when Windows/router UDP broadcast is filtered.
+    // The PC exposes the LAN API on 8890. Probe the phone's active IPv4 /24
+    // networks directly so discovery does not depend on UDP broadcast support.
     try {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
@@ -93,11 +93,7 @@ class JarvisPcBridge {
           if (data is Map && data['name'] == 'J.A.R.V.I.S. NEO' && data['version'] != null) {
             final key = '$host:$mobilePort';
             if (seen.add(key)) {
-              found.add(DiscoveredPc(
-                host: host,
-                port: mobilePort,
-                name: '${data['name']}',
-              ));
+              found.add(DiscoveredPc(host: host, port: mobilePort, name: '${data['name']}'));
             }
           }
         } catch (_) {
@@ -109,12 +105,11 @@ class JarvisPcBridge {
     }
 
     final workers = List.generate(concurrency, (_) => worker());
-    final waiter = Future.wait(workers);
+    final waiter = Future.wait(workers).whenComplete(() => found.close());
     await for (final pc in found.stream) {
       yield pc;
     }
     await waiter;
-    await found.close();
   }
 
   Future<void> connect(DiscoveredPc pc, String pairingCode) async {
@@ -140,18 +135,12 @@ class JarvisPcBridge {
         }
       } catch (_) {}
     }, onError: (Object error, StackTrace stack) {
-      if (!paired.isCompleted) {
-        paired.completeError(error, stack);
-      }
+      if (!paired.isCompleted) paired.completeError(error, stack);
       _events.add({'type': 'error', 'code': 'SOCKET_ERROR', 'message': '$error'});
     }, onDone: () {
-      if (!paired.isCompleted) {
-        paired.completeError(StateError('Connexion fermée pendant l’appairage'));
-      }
+      if (!paired.isCompleted) paired.completeError(StateError('Connexion fermée pendant l’appairage'));
       _channel = null;
-      if (!_manualDisconnect) {
-        _events.add({'type': 'disconnected', 'reconnectable': true});
-      }
+      if (!_manualDisconnect) _events.add({'type': 'disconnected', 'reconnectable': true});
     });
 
     channel.sink.add(jsonEncode({
@@ -202,15 +191,11 @@ class JarvisPcBridge {
         }
       } catch (_) {}
     }, onError: (Object error, StackTrace stack) {
-      if (!ready.isCompleted) {
-        ready.completeError(error, stack);
-      }
+      if (!ready.isCompleted) ready.completeError(error, stack);
       _events.add({'type': 'error', 'code': 'SOCKET_ERROR', 'message': '$error'});
     }, onDone: () {
       _channel = null;
-      if (!_manualDisconnect) {
-        _events.add({'type': 'disconnected', 'reconnectable': true});
-      }
+      if (!_manualDisconnect) _events.add({'type': 'disconnected', 'reconnectable': true});
     });
     channel.sink.add(jsonEncode({'type': 'authenticate', 'protocol': protocol, 'token': _token, 'device_id': _deviceId}));
     try {
@@ -224,8 +209,7 @@ class JarvisPcBridge {
   Future<void> ping() => _send({'type': 'ping'});
   Future<void> status() => _send({'type': 'status'});
   Future<void> sync() => _send({'type': 'sync'});
-  Future<void> action(String name, [Map<String, dynamic> args = const {}]) =>
-      _send({'type': 'action', 'action': name, 'args': args});
+  Future<void> action(String name, [Map<String, dynamic> args = const {}]) => _send({'type': 'action', 'action': name, 'args': args});
 
   Future<void> _send(Map<String, dynamic> body) async {
     final channel = _channel;
