@@ -118,9 +118,14 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
 
   Future<void> command(String action, [Map<String, dynamic> args = const {}]) async {
     try {
-      if (remote.isConnected) await remote.action(action, args);
-      else await bridge.action(action, args);
-    } catch (e) { if (mounted) setState(() => message = '$e'); }
+      if (remote.isConnected) {
+        await remote.action(action, args);
+      } else {
+        await bridge.action(action, args);
+      }
+    } catch (e) {
+      if (mounted) setState(() => message = '$e');
+    }
   }
 
   @override
