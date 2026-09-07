@@ -14,6 +14,7 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
   final bridge = JarvisPcBridge();
   final remote = JarvisRemoteBridge();
   final code = TextEditingController();
+  final host = TextEditingController();
   final relay = TextEditingController();
   final node = TextEditingController();
   StreamSubscription<Map<String, dynamic>>? events;
@@ -22,6 +23,7 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
   Map<String, dynamic> state = {};
   String? selected;
   bool scanning = false;
+  bool localConnecting = false;
   bool remoteConnecting = false;
   String message = 'Recherche du PC JARVIS NEO…';
   String remoteMessage = 'Remote non configuré.';
@@ -31,8 +33,8 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
     super.initState();
     events = bridge.events.listen((event) {
       if (!mounted) return;
-      if (event['type'] == 'state') {
-        final incoming = event['state'];
+      if (event['type'] == 'status' || event['type'] == 'sync') {
+        final incoming = event['data'];
         if (incoming is Map) state = Map<String, dynamic>.from(incoming);
       }
       if (event['type'] == 'error') message = '${event['code'] ?? 'Erreur'}';
@@ -60,6 +62,7 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
     if (!mounted) return;
     relay.text = p.getString('jarvis_remote_relay') ?? defaultRelayUrl;
     node.text = p.getString('jarvis_remote_node') ?? '';
+    host.text = p.getString('jarvis_pc_host') ?? '';
     setState(() {});
   }
 
@@ -69,28 +72,42 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
       await for (final pc in bridge.discover()) {
         if (!pcs.any((x) => x.host == pc.host && x.port == pc.port) && mounted) {
           setState(() => pcs.add(pc));
+          if (host.text.trim().isEmpty) host.text = pc.host;
         }
       }
     } catch (e) {
       if (mounted) message = 'Détection LAN indisponible : $e';
     }
-    if (mounted) setState(() { scanning = false; if (pcs.isEmpty) message = 'Aucun PC trouvé sur le réseau local.'; });
+    if (mounted) setState(() { scanning = false; if (pcs.isEmpty) message = 'Aucun PC détecté automatiquement. Tu peux entrer son adresse IP ci-dessous.'; });
   }
 
   Future<void> pair() async {
-    if (pcs.isEmpty) return;
-    final pc = pcs.firstWhere((x) => x.host == selected, orElse: () => pcs.first);
     final value = code.text.trim();
+    final hostValue = host.text.trim();
     if (!RegExp(r'^\d{6}$').hasMatch(value)) {
       setState(() => message = 'Le code doit contenir 6 chiffres.');
       return;
     }
+    if (hostValue.isEmpty) {
+      setState(() => message = 'Entre l’adresse IP du PC, par exemple 192.168.1.25.');
+      return;
+    }
+    final pc = pcs.firstWhere(
+      (x) => x.host == hostValue,
+      orElse: () => DiscoveredPc(host: hostValue, port: JarvisPcBridge.mobilePort, name: 'J.A.R.V.I.S. NEO'),
+    );
+    setState(() { localConnecting = true; message = 'Connexion à $hostValue:${pc.port}…'; });
     try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('jarvis_pc_host', hostValue);
+      await prefs.setInt('jarvis_pc_port', pc.port);
       await bridge.connect(pc, value);
       await bridge.sync();
       if (mounted) setState(() => message = 'PC connecté et synchronisé.');
     } catch (e) {
-      if (mounted) setState(() => message = 'Échec de connexion : $e');
+      if (mounted) setState(() => message = 'Échec de connexion à $hostValue:${pc.port} : $e');
+    } finally {
+      if (mounted) setState(() => localConnecting = false);
     }
   }
 
@@ -134,6 +151,7 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
     events?.cancel();
     remoteEvents?.cancel();
     code.dispose();
+    host.dispose();
     relay.dispose();
     node.dispose();
     bridge.dispose();
@@ -156,13 +174,19 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
           ])),
         ]))),
         const SizedBox(height: 12),
-        ExpansionTile(title: const Text('Connexion locale'), subtitle: const Text('Wi-Fi / réseau local • appairage 6 chiffres'), initiallyExpanded: !remoteConnected, children: [
+        ExpansionTile(title: const Text('Connexion locale'), subtitle: const Text('Réseau local • appairage 6 chiffres'), initiallyExpanded: !remoteConnected, children: [
           if (!connected) ...[
-            if (pcs.isNotEmpty) DropdownButtonFormField<String>(value: selected ?? pcs.first.host, decoration: const InputDecoration(labelText: 'PC détecté'), items: pcs.map((pc) => DropdownMenuItem(value: pc.host, child: Text('${pc.name} • ${pc.host}:${pc.port}'))).toList(), onChanged: (v) => setState(() => selected = v)),
-            if (pcs.isEmpty) OutlinedButton.icon(onPressed: scanning ? null : scan, icon: const Icon(Icons.radar), label: Text(scanning ? 'Recherche…' : 'Rechercher le PC')),
-            const SizedBox(height: 12),
+            OutlinedButton.icon(onPressed: scanning || localConnecting ? null : scan, icon: const Icon(Icons.radar), label: Text(scanning ? 'Recherche…' : 'Rechercher le PC')),
+            if (pcs.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(value: selected ?? pcs.first.host, decoration: const InputDecoration(labelText: 'PC détecté automatiquement'), items: pcs.map((pc) => DropdownMenuItem(value: pc.host, child: Text('${pc.name} • ${pc.host}:${pc.port}'))).toList(), onChanged: (v) { if (v != null) { setState(() { selected = v; host.text = v; }); } }),
+            ],
+            const SizedBox(height: 10),
+            TextField(controller: host, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Adresse IP du PC', hintText: 'Ex. 192.168.1.25', prefixIcon: Icon(Icons.computer))),
+            const SizedBox(height: 10),
             TextField(controller: code, keyboardType: TextInputType.number, maxLength: 6, obscureText: true, decoration: const InputDecoration(labelText: 'Code d’appairage à 6 chiffres', prefixIcon: Icon(Icons.pin))),
-            FilledButton.icon(onPressed: pcs.isEmpty ? null : pair, icon: const Icon(Icons.link), label: const Text('Connecter et synchroniser')),
+            FilledButton.icon(onPressed: localConnecting ? null : pair, icon: const Icon(Icons.link), label: Text(localConnecting ? 'Connexion…' : 'Connecter et synchroniser')),
+            const Padding(padding: EdgeInsets.fromLTRB(4, 8, 4, 14), child: Text('Le PC doit afficher « passerelle active sur le port 8890 ». Le téléphone et le PC doivent être sur le même réseau local.', style: TextStyle(fontSize: 12, color: Colors.grey))),
           ] else
             OutlinedButton.icon(onPressed: () => bridge.disconnect(), icon: const Icon(Icons.link_off), label: const Text('Déconnecter le local')),
         ]),
@@ -180,7 +204,7 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
         ]),
         if (connected || remoteConnected) ...[
           const SizedBox(height: 12),
-          if (state.isNotEmpty) Card(child: ListTile(leading: const Icon(Icons.sync), title: const Text('État synchronisé'), subtitle: Text('${state['mode'] ?? 'Mode inconnu'} • ${state['status'] ?? 'opérationnel'}'))),
+          if (state.isNotEmpty) Card(child: ListTile(leading: const Icon(Icons.sync), title: const Text('État synchronisé'), subtitle: Text('CPU ${state['cpu'] ?? '?'}% • RAM ${state['ram'] ?? '?'}% • batterie ${state['battery'] ?? '?'}%'))),
           const SizedBox(height: 8),
           const Text('Contrôle rapide', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           Wrap(spacing: 8, runSpacing: 8, children: [
