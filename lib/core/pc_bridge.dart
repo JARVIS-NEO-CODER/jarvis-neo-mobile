@@ -169,8 +169,11 @@ class JarvisPcBridge {
   Future<void> _send(Map<String, dynamic> body) async {
     final channel = _channel;
     final token = _token;
-    if (channel == null || token == null) throw StateError('PC non connecté');
+    final deviceId = _deviceId;
+    if (channel == null || token == null || deviceId == null) throw StateError('PC non connecté');
+    body['protocol'] = protocol;
     body['token'] = token;
+    body['device_id'] = deviceId;
     body['request_id'] = _uuid.v4();
     channel.sink.add(jsonEncode(body));
   }
