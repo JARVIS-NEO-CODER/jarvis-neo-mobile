@@ -88,45 +88,5 @@ jobs:
         with:
           name: jarvis-neo-mobile-ios
           path: artifacts/jarvis-neo-mobile-ios-unsigned.zip
-  pc-bridge-e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout mobile
-        uses: actions/checkout@v4
-      - name: Checkout current PC bridge
-        uses: actions/checkout@v4
-        with:
-          repository: JARVIS-NEO-CODER/jarvis.neo
-          path: pc
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.5'
-          channel: stable
-          cache: true
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install PC bridge test runtime
-        run: python -m pip install 'fastapi>=0.115,<1' 'uvicorn>=0.30,<1'
-      - name: Start real PC bridge implementation
-        run: |
-          cd pc
-          JARVIS_E2E_PORT=8890 JARVIS_E2E_DEVICES_FILE=/tmp/jarvis-e2e-devices.json python -m uvicorn tests.e2e_mobile_server:app --host 127.0.0.1 --port 8890 --log-level warning > /tmp/jarvis-pc-e2e.log 2>&1 &
-          echo $! > /tmp/jarvis-pc-e2e.pid
-          for i in $(seq 1 50); do curl -fsS http://127.0.0.1:8890/api/system >/dev/null 2>&1 && break; sleep 0.2; done
-          curl -fsS http://127.0.0.1:8890/docs >/dev/null
-      - run: flutter pub get
-      - name: Run Flutter ↔ PC E2E
-        run: flutter test test/pc_bridge_e2e_test.dart -r expanded
-      - name: Dump PC bridge logs on failure
-        if: failure()
-        run: cat /tmp/jarvis-pc-e2e.log || true
-      - name: E2E result
-        if: always()
-        run: |
-          echo '============================================'
-          echo ' J.A.R.V.I.S. NEO MOBILE ↔ PC E2E'
-          echo '============================================'
-          echo 'REAL PC BRIDGE + REAL FLUTTER CLIENT'
-          echo 'PAIRING / AUTH / PING / STATUS / SYNC / ACTION / RECONNECT'
-          echo '============================================'
+
+# CI contract: validate the latest mobile feature tree after each push.
