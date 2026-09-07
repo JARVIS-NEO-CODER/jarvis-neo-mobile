@@ -10,6 +10,7 @@ class PcConnectionPage extends StatefulWidget {
 }
 
 class _PcConnectionPageState extends State<PcConnectionPage> {
+  static const defaultRelayUrl = 'wss://jarvis-neo-relay.onrender.com';
   final bridge = JarvisPcBridge();
   final remote = JarvisRemoteBridge();
   final code = TextEditingController();
@@ -57,7 +58,7 @@ class _PcConnectionPageState extends State<PcConnectionPage> {
     await remote.loadSaved();
     final p = await SharedPreferences.getInstance();
     if (!mounted) return;
-    relay.text = p.getString('jarvis_remote_relay') ?? '';
+    relay.text = p.getString('jarvis_remote_relay') ?? defaultRelayUrl;
     node.text = p.getString('jarvis_remote_node') ?? '';
     setState(() {});
   }
