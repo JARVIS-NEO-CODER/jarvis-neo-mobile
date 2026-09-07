@@ -49,9 +49,13 @@ class JarvisPcBridge {
     try {
       socket.broadcastEnabled = true;
       await for (final event in socket.timeout(timeout, onTimeout: (_) => socket.close())) {
-        if (event != RawSocketEvent.read) continue;
+        if (event != RawSocketEvent.read) {
+          continue;
+        }
         final datagram = socket.receive();
-        if (datagram == null) continue;
+        if (datagram == null) {
+          continue;
+        }
         try {
           final data = jsonDecode(utf8.decode(datagram.data));
           if (data['type'] == 'jarvis_discovery' && data['protocol'] == protocol) {
@@ -90,10 +94,14 @@ class JarvisPcBridge {
         }
       } catch (_) {}
     }, onError: (Object error, StackTrace stack) {
-      if (!paired.isCompleted) paired.completeError(error, stack);
+      if (!paired.isCompleted) {
+        paired.completeError(error, stack);
+      }
       _events.add({'type': 'error', 'code': 'SOCKET_ERROR', 'message': '$error'});
     }, onDone: () {
-      if (!paired.isCompleted) paired.completeError(StateError('Connexion fermée pendant l’appairage'));
+      if (!paired.isCompleted) {
+        paired.completeError(StateError('Connexion fermée pendant l’appairage'));
+      }
       _channel = null;
       if (!_manualDisconnect) {
         _events.add({'type': 'disconnected', 'reconnectable': true});
@@ -141,15 +149,22 @@ class JarvisPcBridge {
     _socketSub = channel.stream.listen((raw) {
       try {
         final data = jsonDecode(raw as String) as Map<String, dynamic>;
-        if (!ready.isCompleted && data['type'] == 'authenticated') ready.complete();
-        else _events.add(data);
+        if (!ready.isCompleted && data['type'] == 'authenticated') {
+          ready.complete();
+        } else {
+          _events.add(data);
+        }
       } catch (_) {}
     }, onError: (Object error, StackTrace stack) {
-      if (!ready.isCompleted) ready.completeError(error, stack);
+      if (!ready.isCompleted) {
+        ready.completeError(error, stack);
+      }
       _events.add({'type': 'error', 'code': 'SOCKET_ERROR', 'message': '$error'});
     }, onDone: () {
       _channel = null;
-      if (!_manualDisconnect) _events.add({'type': 'disconnected', 'reconnectable': true});
+      if (!_manualDisconnect) {
+        _events.add({'type': 'disconnected', 'reconnectable': true});
+      }
     });
     channel.sink.add(jsonEncode({'type': 'authenticate', 'protocol': protocol, 'token': _token, 'device_id': _deviceId}));
     try {
