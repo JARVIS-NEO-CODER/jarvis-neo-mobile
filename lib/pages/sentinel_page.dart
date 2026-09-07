@@ -51,29 +51,45 @@ class _SentinelPageState extends State<SentinelPage> with WidgetsBindingObserver
     refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshPcStatus());
   }
 
-  Future<void> _refreshPcStatus() async {
-    if (!(remoteMode ? remote.isConnected : pc.isConnected)) return;
+  Future<Map<String, dynamic>?> _requestLocal(String action) async {
     final completer = Completer<Map<String, dynamic>>();
     late StreamSubscription sub;
+    sub = pc.events.listen((event) {
+      final result = event['result'];
+      if (event['type'] == 'response' && result is Map<String, dynamic> && !completer.isCompleted) completer.complete(result);
+    });
+    try {
+      await pc.action(action);
+      return await completer.future.timeout(const Duration(seconds: 5));
+    } finally {
+      await sub.cancel();
+    }
+  }
+
+  Future<Map<String, dynamic>?> _requestRemote(String action) async {
+    final completer = Completer<Map<String, dynamic>>();
+    late StreamSubscription sub;
+    sub = remote.events.listen((event) {
+      final result = event['result'];
+      if (event['type'] == 'response' && result is Map<String, dynamic> && !completer.isCompleted) completer.complete(result);
+    });
+    try {
+      await remote.action(action);
+      return await completer.future.timeout(const Duration(seconds: 5));
+    } finally {
+      await sub.cancel();
+    }
+  }
+
+  Future<void> _refreshPcStatus() async {
     if (remoteMode) {
-      sub = remote.events.listen((event) {
-        final result = event['result'];
-        if (event['type'] == 'response' && result is Map<String, dynamic> && !completer.isCompleted) completer.complete(result);
-      });
-    } else {
-      sub = pc.events.listen((event) {
-        final result = event['result'];
-        if (event['type'] == 'response' && result is Map<String, dynamic> && !completer.isCompleted) completer.complete(result);
-      });
+      if (!remote.isConnected) return;
+    } else if (!pc.isConnected) {
+      return;
     }
     try {
-      if (remoteMode) {
-        await remote.action('sentinel.status');
-      } else {
-        await pc.action('sentinel.status');
-      }
-      final result = await completer.future.timeout(const Duration(seconds: 5));
-      if (!mounted) return;
+      final result = remoteMode ? await _requestRemote('sentinel.status') : await _requestLocal('sentinel.status');
+      if (result == null || !mounted) return;
       setState(() {
         pcEnabled = result['enabled'] == true;
         pcCamera = result['camera_enabled'] == true;
@@ -82,8 +98,6 @@ class _SentinelPageState extends State<SentinelPage> with WidgetsBindingObserver
       });
     } catch (_) {
       if (mounted) setState(() => message = 'Sentinel PC connecté, état indisponible.');
-    } finally {
-      await sub.cancel();
     }
   }
 
@@ -101,7 +115,7 @@ class _SentinelPageState extends State<SentinelPage> with WidgetsBindingObserver
       ),
     );
     if (confirmed != true) return;
-    if (!(remoteMode ? remote.isConnected : pc.isConnected)) {
+    if (remoteMode ? !remote.isConnected : !pc.isConnected) {
       if (mounted) setState(() => message = 'PC non connecté.');
       return;
     }
