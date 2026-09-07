@@ -52,18 +52,26 @@ class _SentinelPageState extends State<SentinelPage> with WidgetsBindingObserver
   }
 
   Future<void> _refreshPcStatus() async {
-    final bridge = remoteMode ? remote : pc;
-    if (!bridge.isConnected) return;
+    if (!(remoteMode ? remote.isConnected : pc.isConnected)) return;
     final completer = Completer<Map<String, dynamic>>();
     late StreamSubscription sub;
-    sub = bridge.events.listen((event) {
-      final result = event['result'];
-      if (event['type'] == 'response' && result is Map<String, dynamic> && !completer.isCompleted) {
-        completer.complete(result);
-      }
-    });
+    if (remoteMode) {
+      sub = remote.events.listen((event) {
+        final result = event['result'];
+        if (event['type'] == 'response' && result is Map<String, dynamic> && !completer.isCompleted) completer.complete(result);
+      });
+    } else {
+      sub = pc.events.listen((event) {
+        final result = event['result'];
+        if (event['type'] == 'response' && result is Map<String, dynamic> && !completer.isCompleted) completer.complete(result);
+      });
+    }
     try {
-      await bridge.action('sentinel.status');
+      if (remoteMode) {
+        await remote.action('sentinel.status');
+      } else {
+        await pc.action('sentinel.status');
+      }
       final result = await completer.future.timeout(const Duration(seconds: 5));
       if (!mounted) return;
       setState(() {
@@ -93,13 +101,16 @@ class _SentinelPageState extends State<SentinelPage> with WidgetsBindingObserver
       ),
     );
     if (confirmed != true) return;
-    final bridge = remoteMode ? remote : pc;
-    if (!bridge.isConnected) {
+    if (!(remoteMode ? remote.isConnected : pc.isConnected)) {
       if (mounted) setState(() => message = 'PC non connecté.');
       return;
     }
     try {
-      await bridge.action(target ? 'sentinel.enable' : 'sentinel.disable', {'confirmed': true});
+      if (remoteMode) {
+        await remote.action(target ? 'sentinel.enable' : 'sentinel.disable', {'confirmed': true});
+      } else {
+        await pc.action(target ? 'sentinel.enable' : 'sentinel.disable', {'confirmed': true});
+      }
       await _refreshPcStatus();
     } catch (e) {
       if (mounted) setState(() => message = 'Action Sentinel refusée : $e');
@@ -128,8 +139,12 @@ class _SentinelPageState extends State<SentinelPage> with WidgetsBindingObserver
       camera = next;
       setState(() => initializing = false);
     } catch (e) {
-      if (mounted) setState(() => initializing = false);
-      if (mounted) setState(() => message = 'Caméra locale indisponible : $e');
+      if (mounted) {
+        setState(() {
+          initializing = false;
+          message = 'Caméra locale indisponible : $e';
+        });
+      }
     }
   }
 
