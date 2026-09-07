@@ -34,6 +34,9 @@ jobs:
               s = s.replace(marker, marker + permissions)
           elif marker in s and 'INTERNET' not in s:
               s = s.replace(marker, marker + '    <uses-permission android:name="android.permission.INTERNET" />\n')
+          app_marker = '<application'
+          if app_marker in s and 'android:usesCleartextTraffic=' not in s:
+              s = s.replace(app_marker, '<application android:usesCleartextTraffic="true"', 1)
           p.write_text(s)
           PY
       - run: flutter pub get
@@ -69,9 +72,11 @@ jobs:
           project.write_text(s)
           info = Path('ios/Runner/Info.plist')
           s = info.read_text()
-          entries = '''\n\t<key>NSMicrophoneUsageDescription</key>\n\t<string>JARVIS NEO utilise le microphone pour les commandes vocales.</string>\n\t<key>NSSpeechRecognitionUsageDescription</key>\n\t<string>JARVIS NEO utilise la reconnaissance vocale pour comprendre les commandes.</string>\n\t<key>NSCameraUsageDescription</key>\n\t<string>JARVIS NEO utilise la caméra lorsque cette fonction est autorisée.</string>\n\t<key>NSLocationWhenInUseUsageDescription</key>\n\t<string>JARVIS NEO utilise la localisation pour les fonctions autorisées et les routines.</string>\n\t<key>NSBluetoothAlwaysUsageDescription</key>\n\t<string>JARVIS NEO utilise Bluetooth pour les appareils autorisés.</string>\n'''
+          entries = '''\n\t<key>NSMicrophoneUsageDescription</key>\n\t<string>JARVIS NEO utilise le microphone pour les commandes vocales.</string>\n\t<key>NSSpeechRecognitionUsageDescription</key>\n\t<string>JARVIS NEO utilise la reconnaissance vocale pour comprendre les commandes.</string>\n\t<key>NSCameraUsageDescription</key>\n\t<string>JARVIS NEO utilise la caméra lorsque cette fonction est autorisée.</string>\n\t<key>NSLocationWhenInUseUsageDescription</key>\n\t<string>JARVIS NEO utilise la localisation pour les fonctions autorisées et les routines.</string>\n\t<key>NSBluetoothAlwaysUsageDescription</key>\n\t<string>JARVIS NEO utilise Bluetooth pour les appareils autorisés.</string>\n\t<key>NSLocalNetworkUsageDescription</key>\n\t<string>JARVIS NEO recherche les ordinateurs JARVIS NEO présents sur le réseau local.</string>\n'''
           if 'NSMicrophoneUsageDescription' not in s:
               s = s.replace('</dict>', entries + '</dict>')
+          elif 'NSLocalNetworkUsageDescription' not in s:
+              s = s.replace('</dict>', '\n\t<key>NSLocalNetworkUsageDescription</key>\n\t<string>JARVIS NEO recherche les ordinateurs JARVIS NEO présents sur le réseau local.</string>\n</dict>')
           info.write_text(s)
           PY
       - run: flutter pub get
