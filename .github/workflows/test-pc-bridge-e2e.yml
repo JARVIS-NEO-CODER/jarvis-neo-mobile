@@ -1,0 +1,53 @@
+name: JARVIS NEO Mobile <-> PC E2E
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pc-bridge-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout mobile
+        uses: actions/checkout@v4
+      - name: Checkout current PC bridge
+        uses: actions/checkout@v4
+        with:
+          repository: JARVIS-NEO-CODER/jarvis.neo
+          path: pc
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PC bridge test runtime
+        run: python -m pip install 'fastapi>=0.115,<1' 'uvicorn>=0.30,<1' 'websockets>=14,<17'
+      - name: Start real PC bridge implementation
+        run: |
+          cd pc
+          JARVIS_E2E_PORT=8890 JARVIS_E2E_DEVICES_FILE=/tmp/jarvis-e2e-devices.json python -m uvicorn tests.e2e_mobile_server:app --host 127.0.0.1 --port 8890 --log-level warning > /tmp/jarvis-pc-e2e.log 2>&1 &
+          sleep 2
+          curl -fsS http://127.0.0.1:8890/docs >/dev/null
+      - name: Run Flutter <-> PC E2E
+        run: |
+          flutter pub get
+          flutter test test/pc_bridge_e2e_test.dart -r expanded
+      - name: Dump bridge logs on failure
+        if: failure()
+        run: cat /tmp/jarvis-pc-e2e.log || true
+      - name: Result summary
+        if: always()
+        run: |
+          echo '============================================'
+          echo ' J.A.R.V.I.S. NEO MOBILE <-> PC E2E'
+          echo '============================================'
+          echo 'REAL PC BRIDGE + REAL FLUTTER CLIENT'
+          echo 'PAIRING / AUTH / PING / STATUS / SYNC / ACTION / RECONNECT'
+          echo '============================================'
