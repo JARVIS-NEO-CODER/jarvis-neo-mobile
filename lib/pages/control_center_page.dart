@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../core/pc_bridge.dart';
 import '../core/remote_bridge.dart';
+import 'remote_desktop_page.dart';
+import 'sentinel_page.dart';
 
 class ControlCenterPage extends StatefulWidget {
   const ControlCenterPage({super.key});
@@ -39,13 +41,9 @@ class _ControlCenterPageState extends State<ControlCenterPage> {
     setState(() => busy = true);
     try {
       await remote.loadSaved();
-      try {
-        await remote.connect();
-      } catch (_) {}
+      try { await remote.connect(); } catch (_) {}
       if (!remote.isConnected) {
-        try {
-          await local.reconnect();
-        } catch (_) {}
+        try { await local.reconnect(); } catch (_) {}
       }
       if (connected) {
         await _send('status');
@@ -65,11 +63,8 @@ class _ControlCenterPageState extends State<ControlCenterPage> {
       return;
     }
     try {
-      if (remote.isConnected) {
-        await remote.action(action, args);
-      } else {
-        await local.action(action, args);
-      }
+      if (remote.isConnected) await remote.action(action, args);
+      else await local.action(action, args);
       if (mounted) setState(() => status = 'Commande envoyée');
     } catch (e) {
       if (mounted) setState(() => status = 'Commande refusée : $e');
@@ -88,7 +83,7 @@ class _ControlCenterPageState extends State<ControlCenterPage> {
         ],
       ),
     );
-    if (result == true) await _send(action);
+    if (result == true) await _send(action, {'confirmed': true});
   }
 
   @override
@@ -130,8 +125,8 @@ class _ControlCenterPageState extends State<ControlCenterPage> {
             _Control(label: 'Actualiser', icon: Icons.sync, onTap: () => _send('sync')),
             _Control(label: 'Capture écran', icon: Icons.screenshot_monitor, onTap: () => _send('pc.screenshot')),
             _Control(label: 'Verrouiller', icon: Icons.lock, onTap: () => _sensitive('pc.lock', 'Verrouiller le PC ?', 'Le PC sera verrouillé immédiatement.')),
-            _Control(label: 'Bureau distant', icon: Icons.screen_share, onTap: () => _send('pc.remote_desktop.open')),
-            _Control(label: 'Mode Sentinel', icon: Icons.shield, onTap: () => _send('sentinel.status')),
+            _Control(label: 'Bureau distant', icon: Icons.screen_share, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RemoteDesktopPage()))),
+            _Control(label: 'Mode Sentinel', icon: Icons.shield, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SentinelPage()))),
           ]),
           const SizedBox(height: 14),
           Card(child: Column(children: [
@@ -139,7 +134,7 @@ class _ControlCenterPageState extends State<ControlCenterPage> {
             ListTile(leading: const Icon(Icons.monitor), title: const Text('État du PC'), subtitle: Text('Connexion: ${connected ? 'active' : 'inactive'}'), trailing: IconButton(onPressed: connected ? () => _send('status') : null, icon: const Icon(Icons.refresh))),
           ])),
           const SizedBox(height: 10),
-          const Text('Note : les commandes sont envoyées via le protocole JARVIS NEO. Leur exécution dépend des capacités exposées par le moteur PC.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          const Text('Les commandes utilisent le protocole JARVIS NEO et restent soumises aux capacités et confirmations du moteur PC.', style: TextStyle(fontSize: 12, color: Colors.grey)),
         ],
       ),
     );
