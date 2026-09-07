@@ -14,6 +14,7 @@ class DiscoveredPc {
 
 class JarvisPcBridge {
   static const discoveryPort = 47821;
+  static const mobilePort = 8890;
   static const protocol = 'jarvis-neo/1';
   static const _hostKey = 'jarvis_pc_host';
   static const _portKey = 'jarvis_pc_port';
@@ -43,32 +44,109 @@ class JarvisPcBridge {
   }
 
   Stream<DiscoveredPc> discover({Duration timeout = const Duration(seconds: 6)}) async* {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true, reusePort: false);
-    final end = DateTime.now().add(timeout);
+    final seen = <String>{};
+
+    // Preferred discovery: UDP broadcast, when the local network permits it.
+    RawDatagramSocket? socket;
     try {
+      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
+          reuseAddress: true, reusePort: false);
       socket.broadcastEnabled = true;
-      await for (final event in socket.timeout(timeout, onTimeout: (_) => socket.close())) {
-        if (event != RawSocketEvent.read) {
-          continue;
-        }
-        final datagram = socket.receive();
-        if (datagram == null) {
-          continue;
-        }
+      final end = DateTime.now().add(timeout);
+      // The PC currently exposes HTTP on 8890. The UDP listener is kept for
+      // forward compatibility, but the HTTP subnet probe below is the reliable
+      // fallback for Windows networks where UDP broadcast is filtered.
+      final subscription = socket.listen((event) {
+        if (event != RawSocketEvent.read) return;
+        final datagram = socket?.receive();
+        if (datagram == null) return;
         try {
-          final data = jsonDecode(utf8.decode(datagram.data));
+          final data = jsonDecode(utf8.decode(datagram!.data));
           if (data['type'] == 'jarvis_discovery' && data['protocol'] == protocol) {
-            yield DiscoveredPc(host: datagram.address.address,
-                port: (data['port'] as num).toInt(),
-                name: '${data['device'] ?? 'JARVIS NEO PC'}');
+            final host = datagram.address.address;
+            final port = (data['port'] as num?)?.toInt() ?? mobilePort;
+            final key = '$host:$port';
+            if (seen.add(key)) {
+              _events.add({'type': 'pc_discovered', 'host': host, 'port': port});
+            }
           }
         } catch (_) {}
-        if (DateTime.now().isAfter(end)) break;
-      }
+      });
+      await Future<void>.delayed(timeout);
+      await subscription.cancel();
+    } catch (_) {
+      socket?.close();
     } finally {
-      socket.close();
+      socket?.close();
     }
+
+    // Reliable LAN fallback: probe the phone's IPv4 /24 networks over HTTP.
+    // This matches the actual PC bridge, which listens on 0.0.0.0:8890.
+    final candidates = <String>{};
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+        includeLinkLocal: false,
+      );
+      for (final iface in interfaces) {
+        for (final address in iface.addresses) {
+          final ip = address.address;
+          final octets = ip.split('.');
+          if (octets.length != 4) continue;
+          final prefix = '${octets[0]}.${octets[1]}.${octets[2]}.';
+          for (var host = 1; host <= 254; host++) {
+            candidates.add('$prefix$host');
+          }
+        }
+      }
+    } catch (_) {}
+
+    if (candidates.isEmpty) return;
+
+    final deadline = DateTime.now().add(timeout);
+    final queue = candidates.toList(growable: false);
+    const concurrency = 32;
+    var index = 0;
+    Future<void> worker() async {
+      while (DateTime.now().isBefore(deadline)) {
+        final i = index++;
+        if (i >= queue.length) return;
+        final host = queue[i];
+        HttpClient? client;
+        try {
+          client = HttpClient()..connectionTimeout = const Duration(milliseconds: 500);
+          final request = await client.getUrl(Uri.parse('http://$host:$mobilePort/mobile/info'));
+          request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+          final response = await request.close().timeout(const Duration(milliseconds: 800));
+          if (response.statusCode != HttpStatus.ok) continue;
+          final body = await utf8.decoder.bind(response).join().timeout(const Duration(milliseconds: 800));
+          final data = jsonDecode(body);
+          if (data is Map && data['name'] != null && data['version'] != null) {
+            final key = '$host:$mobilePort';
+            if (seen.add(key)) {
+              yieldDiscovered(host, mobilePort, '${data['name']}');
+            }
+          }
+        } catch (_) {
+          // Most addresses are expected to refuse the probe.
+        } finally {
+          client?.close(force: true);
+        }
+      }
+    }
+
+    await Future.wait(List.generate(concurrency, (_) => worker()));
+  }
+
+  void yieldDiscovered(String host, int port, String name) {
+    // Discovery results are surfaced through the same event stream used by the
+    // UI; the page can then build a DiscoveredPc from these fields. This method
+    // intentionally does not mutate the saved session.
+    _events.add({
+      'type': 'discovered_pc',
+      'pc': DiscoveredPc(host: host, port: port, name: name),
+    });
   }
 
   Future<void> connect(DiscoveredPc pc, String pairingCode) async {
@@ -78,7 +156,7 @@ class JarvisPcBridge {
     _port = pc.port;
     _deviceId ??= _uuid.v4();
 
-    final uri = Uri.parse('ws://${pc.host}:${pc.port}/ws');
+    final uri = Uri.parse('ws://${pc.host}:${pc.port}/mobile/ws');
     final channel = IOWebSocketChannel.connect(uri);
     _channel = channel;
     await channel.ready;
@@ -141,7 +219,7 @@ class JarvisPcBridge {
     }
     await disconnect(clearSaved: false);
     _manualDisconnect = false;
-    final uri = Uri.parse('ws://$_host:$_port/ws');
+    final uri = Uri.parse('ws://$_host:$_port/mobile/ws');
     final channel = IOWebSocketChannel.connect(uri);
     _channel = channel;
     await channel.ready;
