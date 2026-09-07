@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:jarvis_neo_mobile/core/pc_bridge.dart';
 
@@ -15,6 +16,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('real PC bridge E2E contract', () async {
+    SharedPreferences.setMockInitialValues({});
     final bridge = JarvisPcBridge();
     final events = bridge.events;
     final pc = DiscoveredPc(host: '127.0.0.1', port: 8890, name: 'JARVIS NEO E2E');
