@@ -25,32 +25,43 @@ void main() {
     expect(bridge.isConnected, isTrue);
     expect(bridge.deviceId, isNotNull);
 
-    final initialState = await nextEvent(events, (e) => e['type'] == 'state');
-    expect(initialState['state']['protocol'], 'jarvis-neo/1');
+    final paired = await nextEvent(events, (e) => e['type'] == 'paired');
+    expect(paired['protocol'], 'jarvis-neo/1');
+    expect(paired['token'], isNotNull);
+
+    final initialStatus = await nextEvent(events, (e) => e['type'] == 'status');
+    expect(initialStatus['protocol'], 'jarvis-neo/1');
+    expect(initialStatus['data']['online'], isTrue);
 
     await bridge.ping();
-    final pong = await nextEvent(events, (e) => e['type'] == 'response' && e['request_id'] != null);
-    expect(pong['ok'], isTrue);
-    expect(pong['result']['pong'], isTrue);
+    final pong = await nextEvent(events, (e) => e['type'] == 'pong');
+    expect(pong['protocol'], 'jarvis-neo/1');
 
     await bridge.status();
-    final status = await nextEvent(events, (e) => e['type'] == 'state' && e['request_id'] != null);
-    expect(status['state']['mode'], 'e2e');
+    final status = await nextEvent(events, (e) => e['type'] == 'status');
+    expect(status['protocol'], 'jarvis-neo/1');
+    expect(status['data']['online'], isTrue);
 
     await bridge.sync();
-    final sync = await nextEvent(events, (e) => e['type'] == 'state' && e['request_id'] != null);
-    expect(sync['state']['protocol'], 'jarvis-neo/1');
+    final sync = await nextEvent(events, (e) => e['type'] == 'sync');
+    expect(sync['protocol'], 'jarvis-neo/1');
+    expect(sync['data']['online'], isTrue);
 
-    await bridge.action('pc.volume', {'level': 42});
-    final action = await nextEvent(events, (e) => e['type'] == 'response' && e['request_id'] != null && e['result'] is Map && e['result']['action'] == 'pc.volume');
-    expect(action['ok'], isTrue);
-    expect(action['result']['args']['level'], 42);
+    await bridge.action('ouvre test');
+    final action = await nextEvent(events, (e) => e['type'] == 'action_result');
+    expect(action['protocol'], 'jarvis-neo/1');
+    expect(action['action'], 'ouvre test');
+    expect(action['data']['ok'], isTrue);
 
     await bridge.reconnect();
     expect(bridge.isConnected, isTrue);
+    final reconnectedStatus = await nextEvent(events, (e) => e['type'] == 'status');
+    expect(reconnectedStatus['protocol'], 'jarvis-neo/1');
+    expect(reconnectedStatus['data']['online'], isTrue);
+
     await bridge.ping();
-    final pongAfterReconnect = await nextEvent(events, (e) => e['type'] == 'response' && e['request_id'] != null);
-    expect(pongAfterReconnect['ok'], isTrue);
+    final pongAfterReconnect = await nextEvent(events, (e) => e['type'] == 'pong');
+    expect(pongAfterReconnect['protocol'], 'jarvis-neo/1');
 
     await bridge.dispose();
   });
