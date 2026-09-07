@@ -33,6 +33,7 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
     await pc.loadSavedSession();
     try {
       await pc.reconnect();
+      remoteMode = false;
       if (mounted) setState(() => status = 'PC connecté en local.');
     } catch (_) {
       try {
@@ -40,7 +41,7 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
         await remote.connect();
         remoteMode = true;
         if (mounted) setState(() => status = 'PC connecté en Remote 4G/5G.');
-      } catch (e) {
+      } catch (_) {
         if (mounted) setState(() => status = 'PC non connecté. Appaire/configure le PC.');
       }
     }
@@ -50,21 +51,46 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
   }
 
   Future<Map<String, dynamic>?> _request(String action) async {
-    final bridge = remoteMode ? remote : pc;
-    final events = bridge.events;
-    final requestIdFuture = Completer<Map<String, dynamic>>();
+    if (remoteMode) {
+      return _requestRemote(action);
+    }
+    return _requestLocal(action);
+  }
+
+  Future<Map<String, dynamic>?> _requestLocal(String action) async {
+    final completer = Completer<Map<String, dynamic>>();
     late StreamSubscription sub;
-    sub = events.listen((event) {
-      if (event['type'] == 'response' && event['result'] is Map<String, dynamic>) {
-        final result = event['result'] as Map<String, dynamic>;
-        if (!requestIdFuture.isCompleted) requestIdFuture.complete(result);
+    sub = pc.events.listen((event) {
+      final result = event['result'];
+      if (event['type'] == 'response' && result is Map<String, dynamic> && !completer.isCompleted) {
+        completer.complete(result);
       }
     });
     try {
-      await bridge.action(action);
-      return await requestIdFuture.future.timeout(const Duration(seconds: 8));
+      await pc.action(action);
+      return await completer.future.timeout(const Duration(seconds: 8));
     } catch (e) {
-      if (mounted) setState(() => status = 'Commande distante indisponible : $e');
+      if (mounted) setState(() => status = 'Commande PC indisponible : $e');
+      return null;
+    } finally {
+      await sub.cancel();
+    }
+  }
+
+  Future<Map<String, dynamic>?> _requestRemote(String action) async {
+    final completer = Completer<Map<String, dynamic>>();
+    late StreamSubscription sub;
+    sub = remote.events.listen((event) {
+      final result = event['result'];
+      if (event['type'] == 'response' && result is Map<String, dynamic> && !completer.isCompleted) {
+        completer.complete(result);
+      }
+    });
+    try {
+      await remote.action(action);
+      return await completer.future.timeout(const Duration(seconds: 8));
+    } catch (e) {
+      if (mounted) setState(() => status = 'Commande Remote indisponible : $e');
       return null;
     } finally {
       await sub.cancel();
@@ -102,9 +128,13 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
       ),
     );
     if (confirmed != true) return;
-    final result = await (remoteMode ? remote : pc).action('pc.lock', {'confirmed': true});
-    if (mounted) {
-      setState(() => status = result.toString());
+    try {
+      final result = remoteMode
+          ? await remote.action('pc.lock', {'confirmed': true})
+          : await pc.action('pc.lock', {'confirmed': true});
+      if (mounted) setState(() => status = result.toString());
+    } catch (e) {
+      if (mounted) setState(() => status = 'Verrouillage refusé : $e');
     }
   }
 
@@ -133,11 +163,7 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
         AspectRatio(
           aspectRatio: 16 / 9,
           child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white12),
-            ),
+            decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(18), border: Border.all(color: Colors.white12)),
             clipBehavior: Clip.antiAlias,
             child: frame == null
                 ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.desktop_access_disabled, size: 56, color: Colors.grey), SizedBox(height: 10), Text('Aucun aperçu reçu', style: TextStyle(color: Colors.grey))]))
