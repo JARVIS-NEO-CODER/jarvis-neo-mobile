@@ -51,9 +51,7 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
   }
 
   Future<Map<String, dynamic>?> _request(String action) async {
-    if (remoteMode) {
-      return _requestRemote(action);
-    }
+    if (remoteMode) return _requestRemote(action);
     return _requestLocal(action);
   }
 
@@ -129,10 +127,12 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
     );
     if (confirmed != true) return;
     try {
-      final result = remoteMode
-          ? await remote.action('pc.lock', {'confirmed': true})
-          : await pc.action('pc.lock', {'confirmed': true});
-      if (mounted) setState(() => status = result.toString());
+      if (remoteMode) {
+        await remote.action('pc.lock', {'confirmed': true});
+      } else {
+        await pc.action('pc.lock', {'confirmed': true});
+      }
+      if (mounted) setState(() => status = 'Commande de verrouillage envoyée.');
     } catch (e) {
       if (mounted) setState(() => status = 'Verrouillage refusé : $e');
     }
@@ -151,14 +151,12 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Card(
-          child: ListTile(
-            leading: Icon(Icons.desktop_windows, color: remoteMode ? Colors.cyan : null),
-            title: const Text('BUREAU À DISTANCE', style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(status),
-            trailing: IconButton(onPressed: _capture, icon: const Icon(Icons.refresh)),
-          ),
-        ),
+        Card(child: ListTile(
+          leading: Icon(Icons.desktop_windows, color: remoteMode ? Colors.cyan : null),
+          title: const Text('BUREAU À DISTANCE', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(status),
+          trailing: IconButton(onPressed: _capture, icon: const Icon(Icons.refresh)),
+        )),
         const SizedBox(height: 12),
         AspectRatio(
           aspectRatio: 16 / 9,
