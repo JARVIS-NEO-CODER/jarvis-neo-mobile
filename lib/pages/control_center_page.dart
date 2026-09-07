@@ -63,8 +63,11 @@ class _ControlCenterPageState extends State<ControlCenterPage> {
       return;
     }
     try {
-      if (remote.isConnected) await remote.action(action, args);
-      else await local.action(action, args);
+      if (remote.isConnected) {
+        await remote.action(action, args);
+      } else {
+        await local.action(action, args);
+      }
       if (mounted) setState(() => status = 'Commande envoyée');
     } catch (e) {
       if (mounted) setState(() => status = 'Commande refusée : $e');
