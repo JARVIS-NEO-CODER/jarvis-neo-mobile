@@ -68,4 +68,4 @@ jobs:
           name: jarvis-neo-mobile-ios
           path: artifacts/jarvis-neo-mobile-ios-unsigned.zip
 
-# CI contract: this workflow validates the mobile tree after each feature commit.
+# CI contract: validate the latest mobile feature tree after each push.
