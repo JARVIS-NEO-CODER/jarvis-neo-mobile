@@ -41,7 +41,7 @@ class _HomeState extends State<Home> {
     if (listening) { await speech.stop(); if (mounted) setState(() => listening = false); return; }
     if (!await speech.initialize()) return;
     if (mounted) setState(() => listening = true);
-    await speech.listen(localeId: 'fr_FR', onResult: (r) { if (r.finalResult && r.recognizedWords.trim().isNotEmpty) _voice(r.recognizedWords.trim()); });
+    await speech.listen(listenOptions: stt.SpeechListenOptions(localeId: 'fr_FR'), onResult: (r) { if (r.finalResult && r.recognizedWords.trim().isNotEmpty) _voice(r.recognizedWords.trim()); });
   }
   Future<void> _voice(String text) async {
     await speech.stop();
