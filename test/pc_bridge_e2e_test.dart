@@ -22,7 +22,7 @@ void main() {
     });
 
     Future<Map<String, dynamic>> waitFor(String type) {
-      final cached = latest[type];
+      final cached = latest.remove(type);
       if (cached != null) return Future.value(cached);
       final waiter = Completer<Map<String, dynamic>>();
       waiters[type] = waiter;
