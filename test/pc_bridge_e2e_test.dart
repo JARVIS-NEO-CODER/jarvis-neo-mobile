@@ -41,7 +41,7 @@ void main() {
       expect(paired['token'], isNotNull);
 
       final initialStatus = await waitFor('status');
-      expect(initialStatus['protocol'], 'jarvis-neo/1');
+      expect(initialStatus['type'], 'status');
       expect(initialStatus['data']['online'], isTrue);
 
       await bridge.ping();
@@ -67,7 +67,7 @@ void main() {
       await bridge.reconnect();
       expect(bridge.isConnected, isTrue);
       final reconnectedStatus = await waitFor('status');
-      expect(reconnectedStatus['protocol'], 'jarvis-neo/1');
+      expect(reconnectedStatus['type'], 'status');
       expect(reconnectedStatus['data']['online'], isTrue);
 
       await bridge.ping();
