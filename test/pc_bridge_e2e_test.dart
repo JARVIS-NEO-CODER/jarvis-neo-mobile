@@ -6,10 +6,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jarvis_neo_mobile/core/pc_bridge.dart';
 
 Future<Map<String, dynamic>> nextEvent(
-  Stream<Map<String, dynamic>> events,
+  StreamIterator<Map<String, dynamic>> events,
   bool Function(Map<String, dynamic>) predicate,
 ) async {
-  return events.firstWhere(predicate).timeout(const Duration(seconds: 8));
+  while (await events.moveNext()) {
+    final event = events.current;
+    if (predicate(event)) return event;
+  }
+  throw StateError('PC bridge event stream closed before expected event');
 }
 
 void main() {
@@ -18,9 +22,7 @@ void main() {
   test('real PC bridge E2E contract', () async {
     SharedPreferences.setMockInitialValues({});
     final bridge = JarvisPcBridge();
-    final inbox = StreamController<Map<String, dynamic>>();
-    final bridgeSubscription = bridge.events.listen(inbox.add);
-    final events = inbox.stream;
+    final events = StreamIterator<Map<String, dynamic>>(bridge.events);
     final pc = DiscoveredPc(host: '127.0.0.1', port: 8890, name: 'JARVIS NEO E2E');
 
     try {
@@ -67,8 +69,7 @@ void main() {
       expect(pongAfterReconnect['protocol'], 'jarvis-neo/1');
     } finally {
       await bridge.dispose();
-      await bridgeSubscription.cancel();
-      await inbox.close();
+      await events.cancel();
     }
   });
 }
